@@ -1,0 +1,5 @@
+ai/analyzer_loop.py.bak
+ai/redteam_mindset.py.save
+ai/__pycache__/
+observers/__pycache__/
+.env
