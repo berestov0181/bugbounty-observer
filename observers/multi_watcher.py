@@ -93,28 +93,34 @@ def check_exploitdb():
         print(f"[-] Exploit-DB error: {e}")
     return findings
 
-# === PacketStorm ===
+# === Vulners + Seclists (замена PacketStorm) ===
 def check_packetstorm():
     findings = []
-    try:
-        url = "https://packetstormsecurity.com/feeds/"
-        r = requests.get(url, timeout=30)
-        if r.status_code == 200:
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(r.text)
-            for item in root.findall(".//item")[:10]:
-                title = item.find("title").text if item.find("title") is not None else "Unknown"
-                link = item.find("link").text if item.find("link") is not None else ""
-                findings.append({
-                    "source": "packetstorm",
-                    "title": f"PacketStorm: {title[:80]}",
-                    "description": f"New exploit/advisory: {link}",
-                    "severity": "MEDIUM",
-                    "factors": ["packetstorm", "public_advisory"],
-                    "meta": {"title": title, "url": link}
-                })
-    except Exception as e:
-        print(f"[-] PacketStorm error: {e}")
+    import xml.etree.ElementTree as ET
+    sources = [
+        ("vulners", "https://vulners.com/rss.xml"),
+        ("seclists", "https://seclists.org/rss/fulldisclosure.rss"),
+    ]
+    for src_name, url in sources:
+        try:
+            r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200 and r.text.strip().startswith("<"):
+                root = ET.fromstring(r.text)
+                for item in root.findall(".//item")[:5]:
+                    title_el = item.find("title")
+                    link_el = item.find("link")
+                    title = (title_el.text or "Unknown") if title_el is not None else "Unknown"
+                    link = (link_el.text or "") if link_el is not None else ""
+                    findings.append({
+                        "source": src_name,
+                        "title": f"{src_name.title()}: {title[:80]}",
+                        "description": f"New advisory: {link}",
+                        "severity": "MEDIUM",
+                        "factors": [src_name, "public_advisory"],
+                        "meta": {"title": title, "url": link}
+                    })
+        except Exception as e:
+            print(f"[-] {src_name} error: {e}")
     return findings
 
 # === OSV.dev (Google) ===
