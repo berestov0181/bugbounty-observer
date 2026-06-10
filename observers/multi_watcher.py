@@ -232,6 +232,51 @@ def check_osv():
     return findings
 
 # === Main loop ===
+
+# === Company Scanner Integration ===
+def check_company_scanner():
+    findings = []
+    try:
+        import glob, socket, random, re as _re
+        import time as _time
+        BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cf = os.path.join(BASE, 'data/global_companies/all_companies.json')
+        if not os.path.exists(cf):
+            return findings
+        companies = json.load(open(cf))
+        sample = random.sample(companies, min(20, len(companies)))
+        for comp in sample:
+            name = comp.get('name', '')
+            country = comp.get('country', '')
+            n = name.lower()
+            for s in [' inc',' corp',' ltd',' llc',' plc',' ag',' group',' holdings',' pao',' oao']:
+                n = n.replace(s, '')
+            domain = _re.sub(r'[^a-z0-9]', '', n.strip()) + '.com'
+            if len(domain) < 7:
+                continue
+            try:
+                ip = socket.gethostbyname(domain)
+                r = requests.get('https://internetdb.shodan.io/' + ip, timeout=6)
+                if r.status_code == 200:
+                    data = r.json()
+                    vulns = data.get('vulns', [])
+                    fresh = [v for v in vulns if '2025' in v or '2026' in v]
+                    if fresh:
+                        findings.append({
+                            'source': 'company_scanner',
+                            'title': 'Company CVE: ' + name + ' (' + domain + ') - ' + fresh[0],
+                            'description': country + ' public company has ' + str(len(fresh)) + ' fresh CVEs: ' + ', '.join(fresh[:3]),
+                            'severity': 'HIGH',
+                            'factors': ['company_scanner', 'public_company', 'cve'],
+                            'meta': {'company': name, 'domain': domain, 'ip': ip, 'country': country, 'vulns': list(vulns), 'fresh_cves': fresh}
+                        })
+                _time.sleep(0.2)
+            except Exception:
+                pass
+    except Exception as e:
+        print('[-] Company scanner error: ' + str(e))
+    return findings
+
 def main():
     state = load_state(STATE_FILE)
     print("[*] Multi-source watcher запущен")
@@ -251,6 +296,11 @@ def main():
         
         print("[*] PacketStorm проверка...")
         all_findings.extend(check_packetstorm())
+
+        print("[*] Company Scanner...")
+        cs = check_company_scanner()
+        all_findings.extend(cs)
+        if cs: print("    Company Scanner: " + str(len(cs)) + " CVE hits")
         
         print("[*] OSV.dev проверка...")
         osv_findings = check_osv()
