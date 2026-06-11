@@ -14,7 +14,33 @@ def post_finding(endpoint=None, finding=None):
         endpoint = OBSERVER_FEED
     elif endpoint is None:
         return False
-    
+
+    # Прогоняем через scoring_engine если нет score
+    if isinstance(finding, dict) and "score" not in finding:
+        try:
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from ai.scoring_engine import score_finding
+            result = score_finding(finding)
+            finding["score"] = result["score"]
+            finding["severity"] = result["severity"]
+            if "factors" not in finding:
+                finding["factors"] = result["factors"]
+            # Светофор
+            s = result["score"]
+            if s >= 75:
+                finding["_light"] = "CRITICAL"
+            elif s >= 50:
+                finding["_light"] = "HIGH"
+            elif s >= 25:
+                finding["_light"] = "MEDIUM"
+            elif s >= 10:
+                finding["_light"] = "LOW"
+            else:
+                finding["_light"] = "INFO"
+        except Exception as _e:
+            pass
+
     url = endpoint if endpoint else OBSERVER_FEED
     try:
         resp = requests.post(url, json=finding, timeout=5)
