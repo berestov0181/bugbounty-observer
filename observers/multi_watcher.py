@@ -314,6 +314,8 @@ def main():
             if key in state.get("seen", {}):
                 continue
             
+            if not f.get("summary") and f.get("title"):
+                f["summary"] = f["title"]
             if post_finding(f):
                 state.setdefault("seen", {})[key] = time.time()
                 sent += 1
