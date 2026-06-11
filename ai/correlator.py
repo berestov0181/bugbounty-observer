@@ -16,6 +16,62 @@ SOURCE_TYPES = {
     'scan_exposure': 'scan', 'shodan': 'scan', 'company_scanner': 'scan',
 }
 NVD_CACHE = {}
+# === Source Trust Score ===
+GITHUB_TRUST_CACHE = {}
+
+def get_github_trust(repo_url):
+    if not repo_url or 'github.com' not in str(repo_url):
+        return 0.5
+    try:
+        parts = str(repo_url).replace('https://github.com/','').split('/')
+        if len(parts) < 1:
+            return 0.5
+        author = parts[0]
+        if author in GITHUB_TRUST_CACHE:
+            return GITHUB_TRUST_CACHE[author]
+        r = requests.get('https://api.github.com/users/' + author, timeout=6,
+            headers={'Accept': 'application/vnd.github.v3+json'})
+        if r.status_code != 200:
+            return 0.5
+        u = r.json()
+        score = 0.3
+        followers = u.get('followers', 0)
+        public_repos = u.get('public_repos', 0)
+        created = u.get('created_at', '')
+        if followers > 100: score += 0.2
+        elif followers > 20: score += 0.1
+        if public_repos > 50: score += 0.15
+        elif public_repos > 10: score += 0.08
+        try:
+            from datetime import datetime, timezone
+            age_days = (datetime.now(timezone.utc) - datetime.fromisoformat(created.replace('Z','+00:00'))).days
+            if age_days > 365*3: score += 0.2
+            elif age_days > 365: score += 0.1
+            elif age_days < 30: score -= 0.2
+        except:
+            pass
+        score = max(0.05, min(1.0, score))
+        GITHUB_TRUST_CACHE[author] = score
+        return score
+    except:
+        return 0.5
+
+def apply_trust_score(findings):
+    for f in findings:
+        src = f.get('source', '')
+        url = f.get('url', '') or f.get('meta', {}).get('url', '')
+        if src == 'github' and url:
+            trust = get_github_trust(url)
+            f['_trust_score'] = trust
+            if trust < 0.2:
+                f['_trust_label'] = 'LOW_TRUST'
+            elif trust < 0.5:
+                f['_trust_label'] = 'MEDIUM_TRUST'
+            else:
+                f['_trust_label'] = 'HIGH_TRUST'
+    return findings
+
+
 
 def check_cve_in_nvd(cve_id):
     if cve_id in NVD_CACHE:
@@ -65,6 +121,62 @@ SOURCE_TYPES = {
     'scan_exposure': 'scan', 'shodan': 'scan', 'company_scanner': 'scan',
 }
 NVD_CACHE = {}
+# === Source Trust Score ===
+GITHUB_TRUST_CACHE = {}
+
+def get_github_trust(repo_url):
+    if not repo_url or 'github.com' not in str(repo_url):
+        return 0.5
+    try:
+        parts = str(repo_url).replace('https://github.com/','').split('/')
+        if len(parts) < 1:
+            return 0.5
+        author = parts[0]
+        if author in GITHUB_TRUST_CACHE:
+            return GITHUB_TRUST_CACHE[author]
+        r = requests.get('https://api.github.com/users/' + author, timeout=6,
+            headers={'Accept': 'application/vnd.github.v3+json'})
+        if r.status_code != 200:
+            return 0.5
+        u = r.json()
+        score = 0.3
+        followers = u.get('followers', 0)
+        public_repos = u.get('public_repos', 0)
+        created = u.get('created_at', '')
+        if followers > 100: score += 0.2
+        elif followers > 20: score += 0.1
+        if public_repos > 50: score += 0.15
+        elif public_repos > 10: score += 0.08
+        try:
+            from datetime import datetime, timezone
+            age_days = (datetime.now(timezone.utc) - datetime.fromisoformat(created.replace('Z','+00:00'))).days
+            if age_days > 365*3: score += 0.2
+            elif age_days > 365: score += 0.1
+            elif age_days < 30: score -= 0.2
+        except:
+            pass
+        score = max(0.05, min(1.0, score))
+        GITHUB_TRUST_CACHE[author] = score
+        return score
+    except:
+        return 0.5
+
+def apply_trust_score(findings):
+    for f in findings:
+        src = f.get('source', '')
+        url = f.get('url', '') or f.get('meta', {}).get('url', '')
+        if src == 'github' and url:
+            trust = get_github_trust(url)
+            f['_trust_score'] = trust
+            if trust < 0.2:
+                f['_trust_label'] = 'LOW_TRUST'
+            elif trust < 0.5:
+                f['_trust_label'] = 'MEDIUM_TRUST'
+            else:
+                f['_trust_label'] = 'HIGH_TRUST'
+    return findings
+
+
 
 def check_cve_in_nvd(cve_id):
     if cve_id in NVD_CACHE:
@@ -277,6 +389,15 @@ def describe_cluster(findings, cluster_indices, edges):
         reason_counts[r] = reason_counts.get(r,0) + 1
     top_reasons = sorted(reason_counts, key=lambda x: -reason_counts[x])[:4]
 
+    # CVE existence check: если CVE не в NVD и источник только github — cap 0.4
+    if all_cves and list(sources) == ['github']:
+        fresh_cves = [c for c in set(c.upper() for c in all_cves) if '2025' in c or '2026' in c]
+        if fresh_cves:
+            in_nvd = any(check_cve_in_nvd(c) for c in fresh_cves[:2])
+            if not in_nvd:
+                avg_conf = min(avg_conf, 0.4)
+                top_reasons.append('cve_not_in_nvd')
+
     # Anti-hallucination: cap confidence если только один тип источника
     capped_conf = anti_hallucination_cap(avg_conf, sources)
     was_capped = capped_conf < avg_conf
@@ -323,6 +444,7 @@ def run():
     if not all_findings:
         print("[-] No findings")
         return
+    all_findings = apply_trust_score(all_findings)
 
     # Temporal filter
     findings = [f for f in all_findings if is_recent(f)]
