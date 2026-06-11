@@ -6,6 +6,104 @@ SERVER = "http://localhost:8080"
 CORR_DIR = "data/correlations"
 os.makedirs(CORR_DIR, exist_ok=True)
 
+# === Verification Engine ===
+SOURCE_TYPES = {
+    'github': 'code_repo', 'multi_watcher': 'code_repo',
+    'nvd': 'vuln_db', 'cisa_kev': 'vuln_db', 'exploitdb': 'vuln_db',
+    'vulners': 'vuln_db', 'seclists': 'vuln_db',
+    'threatfox': 'threat_intel', 'openphish': 'threat_intel',
+    'urlhaus': 'threat_intel', 'phishing': 'threat_intel',
+    'scan_exposure': 'scan', 'shodan': 'scan', 'company_scanner': 'scan',
+}
+NVD_CACHE = {}
+
+def check_cve_in_nvd(cve_id):
+    if cve_id in NVD_CACHE:
+        return NVD_CACHE[cve_id]
+    try:
+        r = requests.get('https://services.nvd.nist.gov/rest/json/cves/2.0',
+            params={'cveId': cve_id}, timeout=8)
+        exists = r.status_code == 200 and r.json().get('totalResults', 0) > 0
+        NVD_CACHE[cve_id] = exists
+        return exists
+    except:
+        pass
+    NVD_CACHE[cve_id] = False
+    return False
+
+def anti_hallucination_cap(confidence, sources):
+    types = set(SOURCE_TYPES.get(s, 'unknown') for s in sources)
+    if len(types) < 2:
+        return min(confidence, 0.75)
+    return confidence
+
+def get_verification_status(confidence):
+    if confidence >= 0.85: return 'CONFIRMED', '\U0001f7e2'
+    elif confidence >= 0.65: return 'VERIFIED', '\U0001f535'
+    elif confidence >= 0.45: return 'LIKELY', '\U0001f7e1'
+    elif confidence >= 0.25: return 'UNVERIFIED', '\U0001f7e0'
+    else: return 'NOISE', '\u26aa'
+
+def review_queue_add(cluster):
+    qf = 'data/review_queue.json'
+    try:
+        q = json.load(open(qf)) if os.path.exists(qf) else []
+    except:
+        q = []
+    q.append({'ts': datetime.now(timezone.utc).isoformat(), 'cluster': cluster, 'status': 'PENDING'})
+    json.dump(q, open(qf, 'w'), indent=2, ensure_ascii=False)
+
+
+
+# === Verification Engine ===
+SOURCE_TYPES = {
+    'github': 'code_repo', 'multi_watcher': 'code_repo',
+    'nvd': 'vuln_db', 'cisa_kev': 'vuln_db', 'exploitdb': 'vuln_db',
+    'vulners': 'vuln_db', 'seclists': 'vuln_db',
+    'threatfox': 'threat_intel', 'openphish': 'threat_intel',
+    'urlhaus': 'threat_intel', 'phishing': 'threat_intel',
+    'scan_exposure': 'scan', 'shodan': 'scan', 'company_scanner': 'scan',
+}
+NVD_CACHE = {}
+
+def check_cve_in_nvd(cve_id):
+    if cve_id in NVD_CACHE:
+        return NVD_CACHE[cve_id]
+    try:
+        r = requests.get('https://services.nvd.nist.gov/rest/json/cves/2.0',
+            params={'cveId': cve_id}, timeout=8)
+        exists = r.status_code == 200 and r.json().get('totalResults', 0) > 0
+        NVD_CACHE[cve_id] = exists
+        return exists
+    except:
+        pass
+    NVD_CACHE[cve_id] = False
+    return False
+
+def anti_hallucination_cap(confidence, sources):
+    types = set(SOURCE_TYPES.get(s, 'unknown') for s in sources)
+    if len(types) < 2:
+        return min(confidence, 0.75)
+    return confidence
+
+def get_verification_status(confidence):
+    if confidence >= 0.85: return 'CONFIRMED', '\U0001f7e2'
+    elif confidence >= 0.65: return 'VERIFIED', '\U0001f535'
+    elif confidence >= 0.45: return 'LIKELY', '\U0001f7e1'
+    elif confidence >= 0.25: return 'UNVERIFIED', '\U0001f7e0'
+    else: return 'NOISE', '\u26aa'
+
+def review_queue_add(cluster):
+    qf = 'data/review_queue.json'
+    try:
+        q = json.load(open(qf)) if os.path.exists(qf) else []
+    except:
+        q = []
+    q.append({'ts': datetime.now(timezone.utc).isoformat(), 'cluster': cluster, 'status': 'PENDING'})
+    json.dump(q, open(qf, 'w'), indent=2, ensure_ascii=False)
+
+
+
 CONFIDENCE_THRESHOLD = 0.5   # минимальный confidence для корреляции
 TEMPORAL_WINDOW_HOURS = 72   # находки старше 72ч не участвуют в цепочках
 
@@ -179,6 +277,11 @@ def describe_cluster(findings, cluster_indices, edges):
         reason_counts[r] = reason_counts.get(r,0) + 1
     top_reasons = sorted(reason_counts, key=lambda x: -reason_counts[x])[:4]
 
+    # Anti-hallucination: cap confidence если только один тип источника
+    capped_conf = anti_hallucination_cap(avg_conf, sources)
+    was_capped = capped_conf < avg_conf
+    avg_conf = capped_conf
+
     score = int(avg_conf * 100)
     if avg_conf >= 0.8:
         severity = "CRITICAL"
@@ -189,11 +292,17 @@ def describe_cluster(findings, cluster_indices, edges):
     else:
         severity = "LOW"
 
-    return {
+    # Verification status со светофором
+    vstatus, vemoji = get_verification_status(avg_conf)
+
+    result = {
         "cluster_size": len(cluster_findings),
         "avg_confidence": avg_conf,
         "score": score,
         "severity": severity,
+        "verification": vstatus,
+        "verification_emoji": vemoji,
+        "anti_hallucination_applied": was_capped,
         "sources": list(sources),
         "cves": list(set(c.upper() for c in all_cves))[:5],
         "technologies": list(set(all_techs))[:5],
@@ -201,6 +310,12 @@ def describe_cluster(findings, cluster_indices, edges):
         "key_findings": [f.get("summary","")[:100] for f in cluster_findings[:3]],
         "edges": cluster_edges,
     }
+
+    # Human Review Queue для критичных подтверждённых находок
+    if avg_conf >= 0.8 and vstatus in ("CONFIRMED", "VERIFIED"):
+        review_queue_add(result)
+
+    return result
 
 def run():
     print("[*] Correlator v2.0 — evidence graph + confidence + temporal filter")
