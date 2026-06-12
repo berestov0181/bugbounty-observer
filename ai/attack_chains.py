@@ -125,7 +125,7 @@ def build_chains(findings):
         if not related:
             # Один тип источника без общих CVE = speculative, пропускаем CRITICAL/HIGH
             # Разрешаем только MEDIUM и ниже
-            chain_score_cap = 44
+            chain_score_cap = 40
         else:
             chain_score_cap = 100
 
