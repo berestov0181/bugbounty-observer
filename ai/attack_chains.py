@@ -76,17 +76,58 @@ def score_chain(finding_count, sources_count, has_cve, has_kev, year):
 
 def build_chains(findings):
     chains = []
+    import re as _re
 
     for chain_id, template in CHAIN_TEMPLATES.items():
         matched = []
         for f in findings:
             summary = f.get("summary", "").lower()
-            source = f.get("source", "")
             trigger_match = any(t in summary for t in template["triggers"])
-            # source_match убран — слишком широкий, тянет unrelated findings
-            # Matching только по содержимому summary
             if trigger_match:
                 matched.append(f)
+
+        if not matched:
+            continue
+
+        # ANTI-SPECULATION: требуем реальную связь между находками
+        # Находки должны разделять общий индикатор: CVE, домен, IP, технологию
+        def has_shared_indicator(findings_list):
+            # Извлекаем CVE из каждой находки
+            cve_sets = []
+            for f in findings_list:
+                cves = set(_re.findall(r"CVE-\d{4}-\d{4,7}", f.get("summary",""), _re.IGNORECASE))
+                if cves:
+                    cve_sets.append(cves)
+            # Если есть CVE в нескольких находках — нужно пересечение
+            if len(cve_sets) >= 2:
+                for i in range(len(cve_sets)):
+                    for j in range(i+1, len(cve_sets)):
+                        if cve_sets[i] & cve_sets[j]:
+                            return True, "shared_cve"
+            # Разные типы источников — уже показатель связи
+            source_types = set()
+            for f in findings_list:
+                src = f.get("source","")
+                if src in ("github", "multi_watcher"): source_types.add("code")
+                elif src in ("scan_exposure", "shodan_tools"): source_types.add("scan")
+                elif src in ("phishing", "threatfox", "urlhaus"): source_types.add("threat")
+                elif src in ("cisa_kev", "nvd"): source_types.add("vuln_db")
+            if len(source_types) >= 2:
+                return True, "multi_source_" + "_".join(sorted(source_types))
+            # Только один источник — speculative
+            return False, "single_source_speculative"
+
+        # Фильтруем: нужна реальная связь
+        if len(matched) < 2:
+            continue
+
+        related, relation_type = has_shared_indicator(matched)
+        if not related:
+            # Один тип источника без общих CVE = speculative, пропускаем CRITICAL/HIGH
+            # Разрешаем только MEDIUM и ниже
+            chain_score_cap = 44
+        else:
+            chain_score_cap = 100
 
         if not matched:
             continue
@@ -123,13 +164,25 @@ def build_chains(findings):
             year=max_year
         )
 
-        severity = "CRITICAL" if score >= 75 else "HIGH" if score >= 50 else "MEDIUM"
+        # Применяем cap если нет реальной связи
+        score = min(score, chain_score_cap)
+
+        if score >= 75:
+            severity = "CRITICAL"
+        elif score >= 50:
+            severity = "HIGH"
+        elif score >= 25:
+            severity = "MEDIUM"
+        else:
+            severity = "LOW"
 
         chain = {
             "id": chain_id,
             "name": template["name"],
             "score": score,
             "severity": severity,
+            "speculative": not related,
+            "relation_type": relation_type,
             "steps": template["steps"],
             "evidence": {
                 "finding_count": len(matched),
