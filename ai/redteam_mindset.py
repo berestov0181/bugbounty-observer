@@ -4,6 +4,7 @@ Red Team Mindset Hunter
 Думаем как хакер — ищем как защитник
 Все источники публичные и легальные
 """
+import os
 import requests, time, json, re, hashlib, os
 from datetime import datetime
 
@@ -152,8 +153,6 @@ def analyze_vulns():
     """
     print("\n[ANALYZE] Анализ уязвимостей через AI...")
 
-    API_KEY = "YOUR_OPENROUTER_API_KEY"
-
     # Получаем находки с сервера
     try:
         r = requests.get(f"{SERVER.replace('/observer_feed','/findings')}", timeout=10)
@@ -182,11 +181,11 @@ Answer in JSON only:
             resp = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f'Bearer {os.environ.get("OPENROUTER_API_KEY", "")}',
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openai/gpt-oss-120b:free",
+                    "model": "nvidia/nemotron-3-super-120b-a12b:free",
                     "max_tokens": 400,
                     "messages": [{"role": "user", "content": prompt}]
                 },
@@ -277,7 +276,6 @@ def hacker_ai_prioritize():
     """
     print("\n[AI PRIORITY] Расстановка приоритетов по хакерской логике...")
 
-    API_KEY = "YOUR_OPENROUTER_API_KEY"
 
     try:
         r = requests.get(
@@ -312,11 +310,12 @@ Answer in JSON:
         resp = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"
+                "x-api-key": os.environ.get("ANTHROPIC_API_KEY", ""),
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
             },
             json={
-                "model": "openai/gpt-oss-120b:free",
+                "model": "nvidia/nemotron-3-super-120b-a12b:free",
                 "max_tokens": 500,
                 "messages": [{"role": "user", "content": prompt}]
             },
