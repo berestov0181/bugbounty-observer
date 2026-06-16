@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -20,11 +21,39 @@ type Finding struct {
 	Extra     map[string]interface{} `json:"-"`
 }
 
+const FINDINGS_FILE = "data/findings_persist.json"
+
 var (
 	findings = make([]Finding, 0)
 	seenKeys = make(map[string]bool)
 	mutex    sync.Mutex
 )
+
+func loadFindings() {
+	data, err := os.ReadFile(FINDINGS_FILE)
+	if err != nil {
+		return
+	}
+	var loaded []Finding
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return
+	}
+	for _, f := range loaded {
+		key := f.Source + ":" + f.Summary
+		seenKeys[key] = true
+		findings = append(findings, f)
+	}
+	log.Printf("[*] Loaded %d findings from disk", len(findings))
+}
+
+func saveFindings() {
+	os.MkdirAll("data", 0755)
+	data, err := json.MarshalIndent(findings, "", "  ")
+	if err != nil {
+		return
+	}
+	os.WriteFile(FINDINGS_FILE, data, 0644)
+}
 
 func dedupeKey(f Finding) string {
 	return f.Source + ":" + f.Summary
@@ -55,6 +84,7 @@ func observerFeed(w http.ResponseWriter, r *http.Request) {
 		f.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 	findings = append(findings, f)
+	go saveFindings()
 	mutex.Unlock()
 
 	summary := f.Summary
@@ -76,6 +106,7 @@ func getFindings(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	loadFindings()
 	http.HandleFunc("/observer_feed", observerFeed)
 	http.HandleFunc("/findings", getFindings)
 	fmt.Println("BugBounty Observer Server started on http://localhost:8080")
