@@ -6,14 +6,14 @@ SIGNALS_FILE = "data/shodan_spike_signals.json"
 os.makedirs("data", exist_ok=True)
 
 TRACKED_SERVICES = {
-    "redis":      ["redis без пароля", "redis open", "redis", "6379", "порт 6379"],
-    "mongodb":    ["mongodb без пароля", "mongodb open", "mongodb", "порт 27017"],
-    "elasticsearch": ["elasticsearch открытый", "elasticsearch open"],
-    "kibana":     ["kibana без auth", "kibana open"],
-    "docker":     ["docker api открытый", "docker api open", "docker", "порт 2375"],
-    "k8s":        ["k8s api", "kubernetes api"],
-    "jenkins":    ["jenkins ci/cd", "jenkins open"],
-    "grafana":    ["grafana dashboard", "grafana open"],
+    "redis":      ["redis"],
+    "mongodb":    ["mongodb"],
+    "elasticsearch": ["elasticsearch"],
+    "kibana":     ["kibana"],
+    "docker":     ["docker"],
+    "k8s":        ["k8s api", "kubernetes"],
+    "jenkins":    ["jenkins"],
+    "grafana":    ["grafana"],
 }
 
 def extract_count(summary):
