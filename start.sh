@@ -26,6 +26,8 @@ sleep 1
 python3 ai/attack_chains.py --loop &
 sleep 1
 python3 ai/forecast_engine.py --loop &
+sleep 1
+python3 ai/temporal_correlation.py --loop &
 
 wait
 

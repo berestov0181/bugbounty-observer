@@ -6,16 +6,18 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type Finding struct {
-	Source   string                 `json:"source"`
-	IP       string                 `json:"ip,omitempty"`
-	Hostname string                 `json:"hostname,omitempty"`
-	Summary  string                 `json:"summary"`
-	Severity string                 `json:"severity"`
-	Priority string                 `json:"priority,omitempty"`
-	Extra    map[string]interface{} `json:"-"`
+	Source    string                 `json:"source"`
+	IP        string                 `json:"ip,omitempty"`
+	Hostname  string                 `json:"hostname,omitempty"`
+	Summary   string                 `json:"summary"`
+	Severity  string                 `json:"severity"`
+	Priority  string                 `json:"priority,omitempty"`
+	Timestamp string                 `json:"timestamp,omitempty"`
+	Extra     map[string]interface{} `json:"-"`
 }
 
 var (
@@ -49,6 +51,9 @@ func observerFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	seenKeys[key] = true
+	if f.Timestamp == "" {
+		f.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	}
 	findings = append(findings, f)
 	mutex.Unlock()
 
