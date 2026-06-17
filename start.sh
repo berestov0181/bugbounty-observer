@@ -28,6 +28,8 @@ sleep 1
 python3 ai/forecast_engine.py --loop &
 sleep 1
 python3 ai/temporal_correlation.py --loop &
+sleep 1
+python3 ai/snapshot_diff.py --loop &
 
 wait
 
