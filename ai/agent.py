@@ -60,6 +60,15 @@ def get_stats():
     except Exception as e:
         return {"error": str(e)}
 
+def get_snapshot_diff():
+    try:
+        path = "data/snapshots/latest_diff.json"
+        if os.path.exists(path):
+            return json.load(open(path))
+        return {"error": "No diff yet"}
+    except Exception as e:
+        return {"error": str(e)}
+
 TOOLS = [
     {"name": "get_findings", "description": "Получить последние security findings. Фильтр по source: github/nvd/phishing/scan_exposure/cisa_kev/company_scanner", "input_schema": {"type": "object", "properties": {"limit": {"type": "integer"}, "source": {"type": "string"}}}},
     {"name": "get_forecast", "description": "Прогноз волн атак — какие CVE будут эксплуатироваться в ближайшие дни.", "input_schema": {"type": "object", "properties": {}}},
@@ -87,6 +96,8 @@ def run_agent(user_query):
     chains = get_attack_chains()
     print("  🔧 get_review_queue()")
     queue = get_review_queue()
+    print("  🔧 get_snapshot_diff()")
+    snapshot = get_snapshot_diff()
 
     # Формируем контекст для LLM
     context = f"""
@@ -106,9 +117,22 @@ ATTACK CHAINS:
 REVIEW QUEUE (critical):
 {json.dumps(queue, ensure_ascii=False)[:500]}
 
+24H CHANGES:
+{json.dumps(snapshot, ensure_ascii=False)[:600]}
+
 USER QUESTION: {user_query}
 
-Answer in Russian. Be concise, actionable, highlight critical items first.
+You are a senior threat intelligence analyst, not a CVE list reader.
+Answer in Russian. Structure your answer as:
+1. WHAT happened (brief facts)
+2. WHY it matters (risk context, exposure, exploit availability)
+3. WHAT LIKELY happens next (forecast-based prediction with timeframe)
+4. RECOMMENDED ACTION (specific, prioritized)
+
+Bad style: "13 new CVEs detected."
+Good style: "13 new CVEs detected. 2 are likely to be weaponized within days due to public PoC plus exposure spike pattern."
+
+Be concise but insightful. Always end with a forward-looking statement, not just a list.
 """
 
     resp = requests.post(
