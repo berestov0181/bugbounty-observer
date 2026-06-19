@@ -47,6 +47,7 @@ def match_patterns(summary):
 def update_patterns(findings):
     patterns = load_patterns()
     now = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for f in findings:
         summary = f.get("summary", "")
         matched = match_patterns(summary)
@@ -57,6 +58,7 @@ def update_patterns(findings):
                 patterns[p] = {
                     "pattern": p, "times_seen": 0, "critical_count": 0,
                     "first_seen": now, "last_seen": now, "examples": [],
+                    "daily_snapshots": [],
                 }
             entry = patterns[p]
             entry["times_seen"] += 1
@@ -65,8 +67,51 @@ def update_patterns(findings):
                 entry["critical_count"] += 1
             if len(entry["examples"]) < 3:
                 entry["examples"].append(summary[:100])
+            if "daily_snapshots" not in entry:
+                entry["daily_snapshots"] = []
+    for p, entry in patterns.items():
+        snaps = entry.get("daily_snapshots", [])
+        if not snaps or snaps[-1]["date"] != today:
+            snaps.append({"date": today, "times_seen": entry["times_seen"]})
+            entry["daily_snapshots"] = snaps[-30:]
+        else:
+            snaps[-1]["times_seen"] = entry["times_seen"]
     save_patterns(patterns)
     return patterns
+
+def get_velocity(pattern_name):
+    patterns = load_patterns()
+    entry = patterns.get(pattern_name)
+    if not entry:
+        return None
+    snaps = entry.get("daily_snapshots", [])
+    if len(snaps) < 2:
+        return {"trend": "insufficient_data", "days_tracked": len(snaps)}
+    prev = snaps[-2]["times_seen"]
+    curr = snaps[-1]["times_seen"]
+    delta = curr - prev
+    pct = (delta / prev * 100) if prev > 0 else (100 if delta > 0 else 0)
+    if pct >= 100:
+        trend = "ACCELERATING"
+    elif pct >= 30:
+        trend = "GROWING"
+    elif pct <= -20:
+        trend = "DECLINING"
+    else:
+        trend = "STABLE"
+    return {"trend": trend, "delta": delta, "pct_change": round(pct, 1),
+            "prev_count": prev, "curr_count": curr, "days_tracked": len(snaps)}
+
+def get_all_velocities():
+    patterns = load_patterns()
+    results = []
+    for p in patterns:
+        v = get_velocity(p)
+        if v and v["trend"] != "insufficient_data":
+            v["pattern"] = p
+            results.append(v)
+    results.sort(key=lambda x: -x["pct_change"])
+    return results
 
 def get_pattern_insight(pattern_name):
     patterns = load_patterns()
